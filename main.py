@@ -75,7 +75,7 @@ async def analyze_prompt(
 
     
     results = await run_in_threadpool(partial(search_system.search_products, q));
-    formatted_results = await run_in_threadpool(partial(search_system.format_results_with_llm, results));
+    formatted_results = await run_in_threadpool(partial(search_system.format_results_with_llm, results, q));
 
 
     return {
