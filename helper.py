@@ -35,6 +35,60 @@ class ProductSearchSystem:
         self.index_name = index_name
         openai.api_key = openai_api_key
         
+    def enhance_query(self, user_query: str) -> str:
+        """Enhance user query using LLM"""
+
+        prompt = f"""
+                    You are an intelligent assistant that reformulates user product queries to make them clearer and more descriptive.
+
+                    Given a user's short or ambiguous query, expand it by:
+                    - Making implicit details explicit
+                    - Guessing likely product category, brand, and attributes based on common knowledge
+                    - Highlighting price range, rating preference, or comparison intent if mentioned or implied
+                    - Including keywords useful for searching product descriptions
+
+                    Output should be a natural-sounding sentence or paragraph that keeps the original intent but adds clarity.
+
+                    Examples:
+                    ---
+
+                    Input: "nike shoes"
+                    Output: "I am looking for Nike brand shoes, likely in the clothing or sportswear category, suitable for running or casual use."
+
+                    Input: "best phone under 500"
+                    Output: "I want to find a top-rated smartphone under $500, ideally with good camera quality and performance."
+
+                    Input: "compare dell laptops"
+                    Output: "I want to compare different Dell laptops in the electronics category, focusing on specs like RAM, storage, and screen size."
+
+                    Input: "4k tv with hdmi 2.1"
+                    Output: "I am searching for a 4K resolution television with HDMI 2.1 support, preferably from a popular brand like Samsung or LG."
+
+                    ---
+
+                    Now enhance the following query:
+                    {user_query}
+                """;
+
+        try:
+            response = openai.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": "You enhance user product queries for better understanding."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1,
+                max_tokens=500
+            )
+
+            user_query = response.choices[0].message.content;
+
+        except Exception as e:
+            print(f"Error extracting features: {e}");
+
+        return user_query;
+
+
     def extract_features_with_llm(self, user_query: str) -> SearchFeatures:
         """Extract search features from user query using LLM"""
         
@@ -225,140 +279,6 @@ class ProductSearchSystem:
         
         return features
     
-
-    
-    # def build_elasticsearch_query(self, features: SearchFeatures, user_query: str) -> Dict[str, Any]:
-    #     """Build Elasticsearch query from extracted features - LIMITED TO TOP 2 RESULTS"""
-        
-    #     query = {
-    #         "query": {
-    #             "bool": {
-    #                 "must": [],
-    #                 "should": [],
-    #                 "filter": []
-    #             }
-    #         },
-    #         "size": 2,  # CHANGED: Only return top 2 results
-    #         "sort": [
-    #             {"_score": {"order": "desc"}},
-    #             {"rating": {"order": "desc", "missing": "_last"}},
-    #             {"view_count": {"order": "desc", "missing": "_last"}}
-    #         ],
-    #         "track_total_hits": True
-    #     }
-        
-    #     # Main text search
-    #     if features.product_name or features.description_keywords:
-    #         search_text = features.product_name or " ".join(features.description_keywords)
-    #         query["query"]["bool"]["should"].extend([
-    #             {
-    #                 "multi_match": {
-    #                     "query": search_text,
-    #                     "fields": ["name^3", "description^2", "category.text"],
-    #                     "type": "best_fields",
-    #                     "boost": 2.0
-    #                 }
-    #             },
-    #             {
-    #                 "match": {
-    #                     "name.keyword": {
-    #                         "query": search_text,
-    #                         "boost": 3.0
-    #                     }
-    #                 }
-    #             }
-    #         ])
-        
-    #     # Fallback: search with original query
-    #     query["query"]["bool"]["should"].append({
-    #         "multi_match": {
-    #             "query": user_query,
-    #             "fields": ["name^2", "description", "category.text", "tags"],
-    #             "type": "cross_fields",
-    #             "operator": "or"
-    #         }
-    #     })
-        
-    #     # Category filter (handle both exact and partial matches)
-    #     if features.category:
-    #         query["query"]["bool"]["should"].extend([
-    #             {"term": {"category": features.category.lower()}},
-    #             {"match": {"category.text": features.category}}
-    #         ])
-        
-    #     # Brand filter (handle both exact and partial matches)
-    #     if features.brand:
-    #         query["query"]["bool"]["should"].extend([
-    #             {"term": {"brand": {"value": features.brand.lower(), "boost": 2.0}}},
-    #             {"match": {"name": {"query": features.brand, "boost": 1.5}}}
-    #         ])
-        
-    #     # Price range filter
-    #     if features.price_range:
-    #         price_filter = {"range": {"price": {}}}
-    #         if "min" in features.price_range:
-    #             price_filter["range"]["price"]["gte"] = features.price_range["min"]
-    #         if "max" in features.price_range:
-    #             price_filter["range"]["price"]["lte"] = features.price_range["max"]
-    #         query["query"]["bool"]["filter"].append(price_filter)
-        
-    #     # Rating filter
-    #     if features.rating_min:
-    #         query["query"]["bool"]["filter"].append({
-    #             "range": {"rating": {"gte": features.rating_min}}
-    #         })
-        
-    #     # Tags boost (handle missing tags field gracefully)
-    #     if features.tags:
-    #         for tag in features.tags:
-    #             query["query"]["bool"]["should"].extend([
-    #                 {"term": {"tags": {"value": tag, "boost": 1.5}}},
-    #                 {"match": {"description": {"query": tag, "boost": 1.2}}}
-    #             ])
-        
-    #     # Attributes search (with error handling for nested fields)
-    #     if features.attributes:
-    #         for attr in features.attributes:
-    #             # Try nested query first, fallback to regular text search
-    #             try:
-    #                 query["query"]["bool"]["should"].append({
-    #                     "nested": {
-    #                         "path": "attributes",
-    #                         "query": {
-    #                             "bool": {
-    #                                 "must": [
-    #                                     {"term": {"attributes.name": attr["name"]}},
-    #                                     {"match": {"attributes.value": attr["value"]}}
-    #                                 ]
-    #                             }
-    #                         },
-    #                         "boost": 2.0,
-    #                         "ignore_unmapped": True
-    #                     }
-    #                 })
-    #             except:
-    #                 # Fallback: search in description for attribute information
-    #                 attr_search_text = f"{attr['name']} {attr['value']}"
-    #                 query["query"]["bool"]["should"].append({
-    #                     "match": {
-    #                         "description": {
-    #                             "query": attr_search_text,
-    #                             "boost": 1.5
-    #                         }
-    #                     }
-    #                 })
-        
-    #     # Ensure we have at least one should clause for scoring
-    #     if not query["query"]["bool"]["should"]:
-    #         query["query"]["bool"]["should"].append({
-    #             "match_all": {}
-    #         })
-        
-    #     # Set minimum should match
-    #     query["query"]["bool"]["minimum_should_match"] = 1
-        
-    #     return query
-
     def build_elasticsearch_query(self, features: SearchFeatures, user_query: str) -> Dict[str, Any]:
         """Build Elasticsearch query from extracted features - LIMITED TO TOP 2 RESULTS"""
         
@@ -554,6 +474,13 @@ class ProductSearchSystem:
     
     def search_products(self, user_query: str) -> Dict[str, Any]:
         """Main search function with fallback strategies - LIMITED TO TOP 2 RESULTS"""
+        
+        try:
+            user_query = self.enhance_query(user_query);
+        except Exception as e:
+            print(e.with_traceback());
+
+        
         basic_query = {
             "query": {"match": {"name": user_query}},
             "size": 2  # CHANGED: Only return top 2 results
