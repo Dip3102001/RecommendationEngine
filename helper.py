@@ -480,7 +480,8 @@ class ProductSearchSystem:
         except Exception as e:
             print(e.with_traceback());
 
-        
+        print(user_query);
+
         basic_query = {
             "query": {"match": {"name": user_query}},
             "size": 2  # CHANGED: Only return top 2 results
