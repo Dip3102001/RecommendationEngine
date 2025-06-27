@@ -78,6 +78,6 @@ async def analyze_prompt(
     formatted_results = await run_in_threadpool(partial(search_system.format_results_with_llm, results, q));
 
 
-    return {
-        "results" : formatted_results
-    };
+    return JSONResponse(
+        content=formatted_results,
+    );
