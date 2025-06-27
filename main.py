@@ -1,17 +1,16 @@
 from fastapi.concurrency import run_in_threadpool;
-
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form;
 from fastapi.responses import JSONResponse;
-from dotenv import load_dotenv;
+from fastapi import FastAPI, UploadFile, File, Form;
+from fastapi.middleware.cors import CORSMiddleware;
+
 import os;
+import requests;
+from dotenv import load_dotenv;
+from functools import partial;
 
 from typing import Optional;
 
 from helper import ProductSearchSystem;
-
-import requests;
-
-from functools import partial;
 
 from elasticsearch import Elasticsearch
 
@@ -30,6 +29,14 @@ app = FastAPI(
     title="Product Recommendation Engine",
     description="User Prompt -> Product Recommendation"
 );
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # ⚠️ use carefully in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 es = Elasticsearch(
     elk_url,
