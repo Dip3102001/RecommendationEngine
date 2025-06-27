@@ -11,6 +11,8 @@ from helper import ProductSearchSystem;
 
 import requests;
 
+from functools import partial;
+
 from elasticsearch import Elasticsearch
 
 # loading ss
@@ -72,8 +74,9 @@ async def analyze_prompt(
             image["items"].append(item);
 
     
-    results = await run_in_threadpool(search_system.search_products(q));
-    formatted_results = await run_in_threadpool(search_system.format_results_with_llm(results, q));
+    results = await run_in_threadpool(partial(search_system.search_products, q));
+    formatted_results = await run_in_threadpool(partial(search_system,formatted_results, results));
+
 
     return {
         "results" : formatted_results
