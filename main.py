@@ -5,6 +5,8 @@ from fastapi.responses import JSONResponse;
 from dotenv import load_dotenv;
 import os;
 
+from typing import Optional;
+
 from helper import ProductSearchSystem;
 
 import requests;
@@ -46,7 +48,7 @@ async def health_check():
 
 @app.post("/analyze")
 async def analyze_prompt(
-    file: UploadFile = File(...),
+    file: Option[UploadFile] = File(...),
     q : str = Form(...)
 ):
     image = {
