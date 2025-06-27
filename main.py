@@ -29,7 +29,7 @@ app = FastAPI(
 
 es = Elasticsearch(
     elk_url,
-    elk_api_key
+    api_key=elk_api_key
 )
     
 # Initialize search system
