@@ -6,6 +6,8 @@ from elasticsearch import Elasticsearch
 import openai
 from datetime import datetime
 
+from util import s3_to_url;
+
 @dataclass
 class SearchFeatures:
     """Extracted features from user query"""
@@ -552,49 +554,18 @@ class ProductSearchSystem:
     
     def search_products(self, user_query: str) -> Dict[str, Any]:
         """Main search function with fallback strategies - LIMITED TO TOP 2 RESULTS"""
-        try:
-            # Extract features using LLM
-            features = self.extract_features_with_llm(user_query)
-            
-            # Try advanced query first
-            try:
-                es_query = self.build_elasticsearch_query(features, user_query)
-                response = self.es.search(index=self.index_name, body=es_query)
-            except Exception as e:
-                print(f"Advanced query failed: {e}")
-                print("Falling back to simple query...")
-                
-                # Fallback to simple query
-                es_query = self.build_simple_query(user_query, features)
-                response = self.es.search(index=self.index_name, body=es_query)
-            
-            return {
-                "extracted_features": features,
-                "elasticsearch_query": es_query,
-                "results": response["hits"]["hits"],
-                "total_results": response["hits"]["total"]["value"] if isinstance(response["hits"]["total"], dict) else response["hits"]["total"],
-                "max_score": response["hits"]["max_score"]
-            }
-            
-        except Exception as e:
-            print(f"Search error: {e}")
-            # Last resort: try a very basic query
-            try:
-                basic_query = {
-                    "query": {"match": {"name": user_query}},
-                    "size": 2  # CHANGED: Only return top 2 results
-                }
-                response = self.es.search(index=self.index_name, body=basic_query)
-                return {
-                    "extracted_features": None,
-                    "elasticsearch_query": basic_query,
-                    "results": response["hits"]["hits"],
-                    "total_results": response["hits"]["total"]["value"] if isinstance(response["hits"]["total"], dict) else response["hits"]["total"],
-                    "max_score": response["hits"]["max_score"]
-                }
-            except Exception as final_error:
-                return {"error": f"All search strategies failed: {str(final_error)}"}
-    
+        basic_query = {
+            "query": {"match": {"name": user_query}},
+            "size": 2  # CHANGED: Only return top 2 results
+        }
+        response = self.es.search(index=self.index_name, body=basic_query)
+        return {
+            "extracted_features": None,
+            "elasticsearch_query": basic_query,
+            "results": response["hits"]["hits"],
+            "total_results": response["hits"]["total"]["value"] if isinstance(response["hits"]["total"], dict) else response["hits"]["total"],
+            "max_score": response["hits"]["max_score"]
+        }    
     
     def format_results_with_llm(self, search_results: Dict[str, Any], user_query: str) -> str:
         """Format search results using LLM for better presentation - FOCUSED ON TOP 2 RESULTS"""
@@ -613,6 +584,7 @@ class ProductSearchSystem:
                 "name": source.get("name", ""),
                 "description": source.get("description", "")[:200] + "...",
                 "category": source.get("category", ""),
+                "image_url": s3_to_url(source.get("image_url", "")),
                 "brand": source.get("brand", ""),
                 "price": source.get("price", 0),
                 "rating": source.get("rating", 0),
@@ -621,19 +593,36 @@ class ProductSearchSystem:
             })
         
         prompt = f"""
-        Format these TOP 2 product search results in a user-friendly way for the query: "{user_query}"
-        
-        Products found: {json.dumps(products_data, indent=2)}
-        
-        Create a well-formatted response that includes:
-        1. A brief summary mentioning these are the TOP 2 best matches
-        2. Both products with detailed key information
-        3. Use emojis and formatting to make it visually appealing
-        4. Include price, rating, and key features for each
-        5. End with a comparison or recommendation between the two
-        
-        Focus on quality over quantity - make each product description rich and informative!
-        """
+                    Format the TOP 2 product search results in a user-friendly JSON response for the query: "{user_query}"
+
+                    Input Data: {products_data}
+
+                    Requirements:
+                    1. Return data in clean JSON format with this exact structure:
+                    {{
+                        "summary": "Brief summary mentioning these are the TOP 2 best matches for the search query",
+                        "products": [
+                        {{
+                            "name": "Product name",
+                            "brand": "Brand name",
+                            "description": "Detailed product description highlighting key features and benefits",
+                            "image_url": "Product image URL",
+                            "price": "Price with currency",
+                            "rating": "Rating score or text"
+                        }}
+                        ]
+                    }}
+
+                    2. Product descriptions should be:
+                    - Rich and informative
+                    - Focus on key features and benefits
+                    - Quality over quantity approach
+                    - Professional tone without emojis
+
+                    3. Include a comparison or recommendation in the summary explaining why these are the top matches
+
+                    Please process the provided product data and return the formatted JSON response.
+                """
         
         try:
             response = openai.chat.completions.create(
