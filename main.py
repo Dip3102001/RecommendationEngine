@@ -9,6 +9,8 @@ from helper import ProductSearchSystem;
 
 import requests;
 
+from elasticsearch import Elasticsearch
+
 # loading ss
 load_dotenv();
 
