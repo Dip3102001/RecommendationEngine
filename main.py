@@ -48,7 +48,7 @@ async def health_check():
 
 @app.post("/analyze")
 async def analyze_prompt(
-    file: Optional[UploadFile] = File(...),
+    file: Optional[UploadFile] = File(None),
     q : str = Form(...)
 ):
     image = {
