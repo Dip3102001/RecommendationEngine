@@ -60,9 +60,7 @@ async def analyze_prompt(
     file: Optional[UploadFile] = File(None),
     q : str = Form(...)
 ):
-    image = {
-        
-    };
+    imageVC = None;
 
     if file and file.content_type.startswith('image'):
         content = await file.read();
@@ -73,19 +71,13 @@ async def analyze_prompt(
         res = requests.post(image_vectorizer_api, files=files);
         response = res.json();
 
-        image["embedding"] = response["embedding"];
-        image["items"] = response["classification"][0]['class'];
-    
-    if "embedding" in image and "items" in image:
-        print(image["embedding"], image["items"]);
-        results = await run_in_threadpool(partial(search_system.build_fuzzy_type_vector_query, image["items"], image["embedding"]));
-        formatted_results = await run_in_threadpool(partial(search_system.format_results_with_llm, results, q));
-    else:
+        q = response["classification"][0]['class'];
+        imageVC = response["embedding"];
 
-        results = await run_in_threadpool(partial(search_system.search_products, q));
-        formatted_results = await run_in_threadpool(partial(search_system.format_results_with_llm, results, q));
 
-    print(formatted_results);
+    results = results = await run_in_threadpool(partial(search_system.search_products, q, imageVC));
+    formatted_results = await run_in_threadpool(partial(search_system.format_results_with_llm, results, q));
+
 
     return JSONResponse(
         content=formatted_results,
