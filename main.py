@@ -77,7 +77,7 @@ async def analyze_prompt(
         image["items"] = response["classification"][0];
 
     
-    if image["embedding"]:
+    if "embedding" in image and "items" in image:
         results = await run_in_threadpool(partial(search_system.build_fuzzy_type_vector_query, image["items"], image["embedding"]));
     else:
         results = await run_in_threadpool(partial(search_system.search_products, q));
