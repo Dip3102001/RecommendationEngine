@@ -65,7 +65,6 @@ async def analyze_prompt(
     };
 
     if file and file.content_type.startswith('image'):
-        print("File present");
         content = await file.read();
         files = {
             "file": (file.filename, content, file.content_type)
@@ -75,8 +74,7 @@ async def analyze_prompt(
         response = res.json();
 
         image["embedding"] = response["embedding"];
-        image["items"] = response["classification"][0];
-
+        image["items"] = response["classification"][0]['class'];
     
     if "embedding" in image and "items" in image:
         print(image["embedding"], image["items"]);
