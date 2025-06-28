@@ -493,7 +493,7 @@ class ProductSearchSystem:
         
         return query
     
-    def search_products(self, user_query: str) -> Dict[str, Any]:
+    def search_products(self, user_query: str, image_vector : List[float] | None) -> Dict[str, Any]:
         """Main search function with fallback strategies - LIMITED TO TOP 2 RESULTS"""
         try:
             # Extract features using LLM
@@ -501,7 +501,10 @@ class ProductSearchSystem:
 
             # Try advanced query first
             try:
-                es_query = self.build_elasticsearch_query(features, user_query)
+                if image_vector is None:
+                    es_query = self.build_elasticsearch_query(features, user_query)
+                else:
+                    es_query = self.build_fuzzy_type_vector_query(features, user_query, image_vector)
                 response = self.es.search(index=self.index_name, body=es_query)
             except Exception as e:
                 # Fallback to simple query
