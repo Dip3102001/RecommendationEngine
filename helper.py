@@ -88,7 +88,6 @@ class ProductSearchSystem:
 
         return user_query;
 
-
     def extract_features_with_llm(self, user_query: str) -> SearchFeatures:
         """Extract search features from user query using LLM"""
         
@@ -281,14 +280,13 @@ class ProductSearchSystem:
     
     def build_elasticsearch_query(self, features: SearchFeatures, user_query: str) -> Dict[str, Any]:
         """Build Elasticsearch query from extracted features - LIMITED TO TOP 2 RESULTS"""
-        
+
         query = {
             "query": {
                 "bool": {
-                    "must": [],
                     "should": [],
                     "filter": [],
-                    "minimum_should_match": 1  # Ensure at least one should clause must match
+                    "minimum_should_match": 1
                 }
             },
             "size": 2,
@@ -300,52 +298,76 @@ class ProductSearchSystem:
             "track_total_hits": True
         }
 
+        # Helper function to ensure string conversion
+        def ensure_string(value):
+            if isinstance(value, list):
+                return " ".join(str(item) for item in value if item)
+            return str(value) if value else ""
+
         # 1. Main text search
         if features.product_name or features.description_keywords:
-            search_text = features.product_name or " ".join(features.description_keywords)
-            query["query"]["bool"]["should"].extend([
-                {
-                    "multi_match": {
-                        "query": search_text,
-                        "fields": ["name^3", "description^2", "category.text"],
-                        "type": "best_fields",
-                        "boost": 2.0
-                    }
-                },
-                {
-                    "match": {
-                        "name.keyword": {
+            # Fix: Ensure both product_name and description_keywords are strings
+            product_name_text = ensure_string(features.product_name)
+            description_text = ensure_string(features.description_keywords)
+            search_text = product_name_text or description_text
+
+            if search_text:  # Only add if we have actual search text
+                query["query"]["bool"]["should"].extend([
+                    {
+                        "multi_match": {
                             "query": search_text,
-                            "boost": 3.0
+                            "fields": ["name^3", "description^2", "category.text"],
+                            "type": "best_fields",
+                            "boost": 2.0
                         }
+                    },
+                    {
+                        "match": {
+                            "name.keyword": {
+                                "query": search_text,
+                                "boost": 3.0
+                            }
+                        }
+                    }
+                ])
+
+        # 2. Fallback with original user query
+        if user_query:  # Only add if user_query is not empty
+            query["query"]["bool"]["should"].append({
+                "multi_match": {
+                    "query": ensure_string(user_query),
+                    "fields": ["name^2", "description", "category.text", "tags"],
+                    "type": "cross_fields",
+                    "operator": "or"
+                }
+            })
+
+        # 3. Category
+        if features.category:
+            category_str = ensure_string(features.category)
+            # Move category to filter (MUST match) instead of should
+            query["query"]["bool"]["filter"].extend([
+                {
+                    "bool": {
+                        "should": [
+                            {"term": {"category": category_str.lower()}},
+                            {"match": {"category.text": category_str}}
+                        ],
+                        "minimum_should_match": 1
                     }
                 }
             ])
 
-        # 2. Fallback with original user query
-        query["query"]["bool"]["should"].append({
-            "multi_match": {
-                "query": user_query,
-                "fields": ["name^2", "description", "category.text", "tags"],
-                "type": "cross_fields",
-                "operator": "or"
-            }
-        })
-
-        # 3. Category
-        if features.category:
-            query["query"]["bool"]["should"].extend([
-                {"term": {"category": features.category.lower()}},
-                {"match": {"category.text": features.category}}
-            ])
-
-        # 4. Brands (as list)
+        # 4. Brands
         if features.brand:
-            for brand in features.brand:
-                query["query"]["bool"]["should"].extend([
-                    {"term": {"brand": {"value": brand.lower(), "boost": 2.0}}},
-                    {"match": {"name": {"query": brand, "boost": 1.5}}}
-                ])
+            brands = features.brand if isinstance(features.brand, list) else [features.brand]
+            for brand in brands:
+                brand_str = ensure_string(brand)
+                if brand_str:  # Only add if brand is not empty
+                    query["query"]["bool"]["should"].extend([
+                        {"term": {"brand": {"value": brand_str.lower(), "boost": 2.0}}},
+                        {"match": {"name": {"query": brand_str, "boost": 1.5}}}
+                    ])
 
         # 5. Price filter
         if features.price_range:
@@ -362,21 +384,23 @@ class ProductSearchSystem:
                 "range": {"rating": {"gte": features.rating_min}}
             })
 
-        # 7. Tags (use `match` not `term`)
+        # 7. Tags
         if features.tags:
-            for tag in features.tags:
-                query["query"]["bool"]["should"].extend([
-                    {"match": {"tags": {"query": tag, "boost": 1.5}}},
-                    {"match": {"description": {"query": tag, "boost": 1.2}}}
-                ])
+            tags = features.tags if isinstance(features.tags, list) else [features.tags]
+            for tag in tags:
+                tag_str = ensure_string(tag)
+                if tag_str:  # Only add if tag is not empty
+                    query["query"]["bool"]["should"].extend([
+                        {"match": {"tags": {"query": tag_str, "boost": 1.5}}},
+                        {"match": {"description": {"query": tag_str, "boost": 1.2}}}
+                    ])
 
-        # 8. Attributes (nested + fallback)
+        # 8. Attributes
         if features.attributes:
             for attr in features.attributes:
-                name = attr.get("name")
-                value = attr.get("value")
+                name = ensure_string(attr.get("name"))
+                value = ensure_string(attr.get("value"))
                 if name and value:
-                    # Nested query for attributes
                     query["query"]["bool"]["should"].append({
                         "nested": {
                             "path": "attributes",
@@ -392,8 +416,6 @@ class ProductSearchSystem:
                             "ignore_unmapped": True
                         }
                     })
-
-                    # Fallback: include attribute in general text search
                     query["query"]["bool"]["should"].append({
                         "multi_match": {
                             "query": f"{name} {value}",
@@ -402,14 +424,13 @@ class ProductSearchSystem:
                         }
                     })
 
-        # 9. Fallback if nothing else matched
+        # 9. Fallback if no "should" clause present
         if not query["query"]["bool"]["should"]:
             query["query"]["bool"]["should"].append({
                 "match_all": {}
             })
 
         return query
-
     
     def build_simple_query(self, user_query: str, features: SearchFeatures = None) -> Dict[str, Any]:
         """Build a simpler, more robust Elasticsearch query - LIMITED TO TOP 2 RESULTS"""
@@ -474,27 +495,80 @@ class ProductSearchSystem:
     
     def search_products(self, user_query: str) -> Dict[str, Any]:
         """Main search function with fallback strategies - LIMITED TO TOP 2 RESULTS"""
-        
         try:
-            user_query = self.enhance_query(user_query);
+            # Extract features using LLM
+            features = self.extract_features_with_llm(user_query)
+
+            # Try advanced query first
+            try:
+                es_query = self.build_elasticsearch_query(features, user_query)
+                response = self.es.search(index=self.index_name, body=es_query)
+            except Exception as e:
+                # Fallback to simple query
+                es_query = self.build_simple_query(user_query, features)
+                response = self.es.search(index=self.index_name, body=es_query)
+
+            return {
+                "extracted_features": features,
+                "elasticsearch_query": es_query,
+                "results": response["hits"]["hits"],
+                "total_results": response["hits"]["total"]["value"] if isinstance(response["hits"]["total"], dict) else response["hits"]["total"],
+                "max_score": response["hits"]["max_score"]
+            }
         except Exception as e:
-            print(e.with_traceback());
+            print(e);
 
-        print(user_query);
-
-        basic_query = {
-            "query": {"match": {"name": user_query}},
-            "size": 2  # CHANGED: Only return top 2 results
-        }
-        response = self.es.search(index=self.index_name, body=basic_query)
-        return {
-            "extracted_features": None,
-            "elasticsearch_query": basic_query,
-            "results": response["hits"]["hits"],
-            "total_results": response["hits"]["total"]["value"] if isinstance(response["hits"]["total"], dict) else response["hits"]["total"],
-            "max_score": response["hits"]["max_score"]
-        }    
     
+    def build_fuzzy_type_vector_query(self, image_type: str, image_vector: List[float]) -> Dict[str, Any]:
+        """
+        Fuzzy version: More flexible type matching + vector ranking
+        
+        Args:
+            image_type: The detected/classified image type
+            image_vector: Image embedding vector for similarity ranking
+        """
+        
+        query = {
+            "query": {
+                "bool": {
+                    "filter": [
+                        # STEP 1: Flexible filter - match type with fuzzy search
+                        {
+                            "bool": {
+                                "should": [
+                                    {"match": {"name": {"query": image_type, "fuzziness": "AUTO"}}},
+                                    {"match": {"category": {"query": image_type, "fuzziness": "AUTO"}}},
+                                    {"match": {"description": {"query": image_type, "fuzziness": "AUTO"}}},
+                                    {"wildcard": {"name": f"*{image_type.lower()}*"}},
+                                    {"wildcard": {"category": f"*{image_type.lower()}*"}}
+                                ],
+                                "minimum_should_match": 1
+                            }
+                        },
+                        {"exists": {"field": "image_vector"}}
+                    ],
+                    "must": [
+                        # STEP 2: Rank by vector similarity
+                        {
+                            "script_score": {
+                                "query": {"match_all": {}},
+                                "script": {
+                                    "source": "cosineSimilarity(params.query_vector, 'image_vector') + 1.0",
+                                    "params": {"query_vector": image_vector}
+                                }
+                            }
+                        }
+                    ]
+                }
+            },
+            "size": 2,
+            "sort": [{"_score": {"order": "desc"}}],
+            "_source": ["name", "category", "description", "price", "rating", "image_url"]
+        }
+        
+        return query
+
+
     def format_results_with_llm(self, search_results: Dict[str, Any], user_query: str) -> str:
         """Format search results using LLM for better presentation - FOCUSED ON TOP 2 RESULTS"""
         
@@ -568,24 +642,3 @@ class ProductSearchSystem:
         except Exception as e:
             # Fallback formatting
             return self._basic_format_results(search_results, user_query)
-    
-    def _basic_format_results(self, search_results: Dict[str, Any], user_query: str) -> str:
-        """Fallback method for formatting results - TOP 2 FOCUS"""
-        results_text = f"🔍 Top 2 best matches for '{user_query}' (from {search_results['total_results']} total results)\n\n"
-        
-        for i, hit in enumerate(search_results["results"][:2], 1):  # CHANGED: Only top 2
-            source = hit["_source"]
-            results_text += f"🏆 **#{i} - {source.get('name', 'Unknown')}**\n"
-            results_text += f"   💰 ${source.get('price', 0):.2f}\n"
-            results_text += f"   ⭐ {source.get('rating', 0)}/5\n"
-            results_text += f"   🏷️ {source.get('category', 'N/A')}\n"
-            if source.get('brand'):
-                results_text += f"   🏢 {source['brand']}\n"
-            if source.get('description'):
-                results_text += f"   📝 {source['description'][:150]}...\n"
-            results_text += f"   📊 Relevance Score: {hit['_score']:.2f}\n"
-            results_text += "\n"
-        
-        results_text += "💡 These are the 2 most relevant products based on your search criteria!"
-        
-        return results_text

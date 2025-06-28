@@ -32,7 +32,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # ⚠️ use carefully in production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -74,15 +74,14 @@ async def analyze_prompt(
         response = res.json();
 
         image["embedding"] = response["embedding"];
-        image["items"] = [];
-
-        for items in response["classification"][:2]:
-            item = items[0];
-            image["items"].append(item);
+        image["items"] = response["classification"][0];
 
     
-    results = await run_in_threadpool(partial(search_system.search_products, q));
-    formatted_results = await run_in_threadpool(partial(search_system.format_results_with_llm, results, q));
+    if image["embedding"]:
+        results = await run_in_threadpool(partial(search_system.build_fuzzy_type_vector_query, image["items"], image["embedding"]));
+    else:
+        results = await run_in_threadpool(partial(search_system.search_products, q));
+        formatted_results = await run_in_threadpool(partial(search_system.format_results_with_llm, results, q));
 
     print(formatted_results);
 
