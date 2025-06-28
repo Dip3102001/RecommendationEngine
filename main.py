@@ -65,6 +65,7 @@ async def analyze_prompt(
     };
 
     if file and file.content_type.startswith('image'):
+        print("File present");
         content = await file.read();
         files = {
             "file": (file.filename, content, file.content_type)
